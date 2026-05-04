@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🧬 Genome Analyzer v1.0</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'JetBrains Mono','SF Mono','Fira Code','Courier New',monospace;background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 40%,#16213e 100%);color:#e2e8f0;min-height:100vh}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#0f0f1a}
+::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#475569}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.fade-in{animation:fadeIn .4s ease-out}
+.pulse{animation:pulse 1.5s infinite}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const {useState,useRef,useCallback,useMemo} = React;
+
+// ═══════════════════════════════════════════════════════════════
+// SNP DATABASE (~100 clinically validated markers)
+// ═══════════════════════════════════════════════════════════════
+const SNP_DB=[
+{rs:"rs1799853",gene:"CYP2C9",cat:"PHARM",risk:"T",ref:"C",desc:"CYP2C9*2 — сниженный метаболизм варфарина, НПВС, фенитоина",ev:"A",or:2.3,trait:"Варфарин: снижение дозы на ~20%"},
+{rs:"rs1057910",gene:"CYP2C9",cat:"PHARM",risk:"C",ref:"A",desc:"CYP2C9*3 — значительно сниженный метаболизм варфарина",ev:"A",or:3.5,trait:"Варфарин: снижение дозы на ~35%"},
+{rs:"rs9923231",gene:"VKORC1",cat:"PHARM",risk:"T",ref:"C",desc:"VKORC1 -1639G>A — чувствительность к варфарину",ev:"A",or:2.8,trait:"Варфарин: требуется сниженная доза"},
+{rs:"rs4244285",gene:"CYP2C19",cat:"PHARM",risk:"A",ref:"G",desc:"CYP2C19*2 — слабый метаболизатор клопидогрела",ev:"A",or:2.4,trait:"Клопидогрел: сниженная эффективность"},
+{rs:"rs4986893",gene:"CYP2C19",cat:"PHARM",risk:"A",ref:"G",desc:"CYP2C19*3 — нефункциональный аллель",ev:"A",or:3.1,trait:"Клопидогрел, ИПП: нарушен метаболизм"},
+{rs:"rs12248560",gene:"CYP2C19",cat:"PHARM",risk:"T",ref:"C",desc:"CYP2C19*17 — ультрабыстрый метаболизм",ev:"A",or:1.8,trait:"Антидепрессанты: ускоренное выведение"},
+{rs:"rs3892097",gene:"CYP2D6",cat:"PHARM",risk:"A",ref:"G",desc:"CYP2D6*4 — слабый метаболизатор кодеина, тамоксифена",ev:"A",or:2.7,trait:"Кодеин не работает, тамоксифен неэффективен"},
+{rs:"rs5030655",gene:"CYP2D6",cat:"PHARM",risk:"DEL",ref:"T",desc:"CYP2D6*6 — нефункциональный аллель",ev:"A",or:3.0,trait:"Кодеин, трамадол: отсутствие эффекта"},
+{rs:"rs16947",gene:"CYP2D6",cat:"PHARM",risk:"A",ref:"G",desc:"CYP2D6*2 — нормальная/повышенная активность",ev:"B",or:1.0,trait:"Маркёр нормального метаболизма CYP2D6"},
+{rs:"rs4149056",gene:"SLCO1B1",cat:"PHARM",risk:"C",ref:"T",desc:"SLCO1B1*5 — риск миопатии от статинов",ev:"A",or:4.5,trait:"Статины: повышенный риск мышечных болей"},
+{rs:"rs1045642",gene:"ABCB1",cat:"PHARM",risk:"T",ref:"C",desc:"MDR1 C3435T — изменённый транспорт лекарств",ev:"B",or:1.4,trait:"Изменённая абсорбция дигоксина, циклоспорина"},
+{rs:"rs9934438",gene:"VKORC1",cat:"PHARM",risk:"A",ref:"G",desc:"VKORC1 1173C>T — дополнительный маркёр варфарина",ev:"A",or:2.5,trait:"Варфарин: подтверждение дозирования"},
+{rs:"rs1128503",gene:"ABCB1",cat:"PHARM",risk:"T",ref:"C",desc:"MDR1 C1236T — модификатор лекарственного транспорта",ev:"B",or:1.3,trait:"P-гликопротеин: изменённая активность"},
+{rs:"rs28399504",gene:"CYP2C19",cat:"PHARM",risk:"G",ref:"A",desc:"CYP2C19*4 — дефектный сплайсинг",ev:"A",or:2.9,trait:"ИПП, клопидогрел: нарушен метаболизм"},
+{rs:"rs3745274",gene:"CYP2B6",cat:"PHARM",risk:"T",ref:"G",desc:"CYP2B6*6 — медленный метаболизм эфавиренза",ev:"A",or:2.1,trait:"Эфавиренз: побочные эффекты ЦНС"},
+{rs:"rs12720461",gene:"CYP2D6",cat:"PHARM",risk:"A",ref:"G",desc:"CYP2D6*41 — сниженная функция",ev:"B",or:1.6,trait:"Кодеин, антидепрессанты: сниженный ответ"},
+{rs:"rs1799930",gene:"NAT2",cat:"PHARM",risk:"A",ref:"G",desc:"NAT2*6A — медленное ацетилирование изониазида",ev:"A",or:2.0,trait:"Изониазид: повышенный риск гепатотоксичности"},
+{rs:"rs1801280",gene:"NAT2",cat:"PHARM",risk:"C",ref:"T",desc:"NAT2*5B — медленный ацетилятор",ev:"A",or:2.2,trait:"Кофеин, ариламины: замедленный клиренс"},
+{rs:"rs1695",gene:"GSTP1",cat:"PHARM",risk:"G",ref:"A",desc:"GSTP1 Ile105Val — модификатор ответа на химиотерапию",ev:"B",or:1.5,trait:"Оксалиплатин: модификатор эффективности"},
+{rs:"rs6277",gene:"DRD2",cat:"PHARM",risk:"T",ref:"C",desc:"DRD2 C957T — ответ на антипсихотики",ev:"B",or:1.4,trait:"Антипсихотики: модификатор ответа"},
+{rs:"rs6025",gene:"F5",cat:"CARDIO",risk:"A",ref:"G",desc:"Factor V Leiden — тромбофилия",ev:"A",or:5.0,trait:"Венозный тромбоз: риск ×5–7 (гетеро), ×50–80 (гомо)"},
+{rs:"rs1799963",gene:"F2",cat:"CARDIO",risk:"A",ref:"G",desc:"Протромбин G20210A — повышенный протромбин",ev:"A",or:3.0,trait:"Тромбоз: риск ×2–4"},
+{rs:"rs1801133",gene:"MTHFR",cat:"CARDIO",risk:"T",ref:"C",desc:"MTHFR C677T — нарушение фолатного цикла",ev:"A",or:1.7,trait:"Гомоцистеин ↑, фолат ↓, кардиориск ↑"},
+{rs:"rs1801131",gene:"MTHFR",cat:"CARDIO",risk:"C",ref:"A",desc:"MTHFR A1298C — второй вариант фолатного цикла",ev:"A",or:1.3,trait:"Гомоцистеин: умеренное повышение"},
+{rs:"rs10757278",gene:"CDKN2A/B",cat:"CARDIO",risk:"G",ref:"A",desc:"9p21 локус — ведущий маркёр ИБС",ev:"A",or:1.3,trait:"ИБС: риск ×1.3 на аллель",beta:0.25},
+{rs:"rs1333049",gene:"CDKN2A/B",cat:"CARDIO",risk:"C",ref:"G",desc:"9p21 — второй маркёр коронарного риска",ev:"A",or:1.35,trait:"ИБС: подтверждение 9p21 локуса",beta:0.28},
+{rs:"rs10455872",gene:"LPA",cat:"CARDIO",risk:"G",ref:"A",desc:"Lp(a) — липопротеин(а), независимый кардиориск",ev:"A",or:1.7,trait:"Lp(a) ↑↑: риск ИБС и аортального стеноза",beta:0.49},
+{rs:"rs3798220",gene:"LPA",cat:"CARDIO",risk:"C",ref:"T",desc:"Lp(a) — второй вариант повышения",ev:"A",or:1.5,trait:"Lp(a): дополнительный кардиориск"},
+{rs:"rs11591147",gene:"PCSK9",cat:"CARDIO",risk:"T",ref:"G",desc:"PCSK9 R46L — потеря функции, низкий ЛПНП",ev:"A",or:0.5,trait:"Кардиопротекция: ЛПНП снижен на 15–30%"},
+{rs:"rs5082",gene:"APOA2",cat:"CARDIO",risk:"G",ref:"A",desc:"APOA2 — взаимодействие с насыщенными жирами",ev:"B",or:1.3,trait:"Ожирение при высоком потреблении насыщенных жиров"},
+{rs:"rs1746048",gene:"CXCL12",cat:"CARDIO",risk:"C",ref:"T",desc:"CXCL12 — маркёр коронарного риска",ev:"A",or:1.2,trait:"ИБС: дополнительный маркёр",beta:0.17},
+{rs:"rs2383206",gene:"CDKN2A/B",cat:"CARDIO",risk:"G",ref:"A",desc:"9p21 третий вариант",ev:"A",or:1.3,trait:"ИБС: кумулятивный эффект 9p21",beta:0.23},
+{rs:"rs599839",gene:"SORT1",cat:"CARDIO",risk:"A",ref:"G",desc:"SORT1/CELSR2 — регуляция ЛПНП",ev:"A",or:1.2,trait:"ЛПНП: модификатор уровня",beta:0.15},
+{rs:"rs17465637",gene:"MIA3",cat:"CARDIO",risk:"C",ref:"A",desc:"MIA3 — маркёр ИБС",ev:"A",or:1.15,trait:"ИБС: умеренный риск-маркёр",beta:0.13},
+{rs:"rs12413409",gene:"CYP17A1",cat:"CARDIO",risk:"G",ref:"A",desc:"CYP17A1 — артериальное давление",ev:"A",or:1.1,trait:"АД: умеренное влияние"},
+{rs:"rs2200733",gene:"PITX2",cat:"CARDIO",risk:"T",ref:"C",desc:"PITX2 — фибрилляция предсердий",ev:"A",or:1.5,trait:"Мерцательная аритмия: риск ×1.5"},
+{rs:"rs4988235",gene:"MCM6/LCT",cat:"NUTRI",risk:"C",ref:"T",desc:"Лактазная персистенция (европейский вариант)",ev:"A",or:8.0,trait:"CC = непереносимость лактозы, TT = переносит молоко"},
+{rs:"rs762551",gene:"CYP1A2",cat:"NUTRI",risk:"C",ref:"A",desc:"CYP1A2 — скорость метаболизма кофеина",ev:"A",or:1.4,trait:"AC/CC = медленный метаболизм: кофеин ↑ кардиориск"},
+{rs:"rs1229984",gene:"ADH1B",cat:"NUTRI",risk:"T",ref:"C",desc:"ADH1B Arg48His — быстрый метаболизм алкоголя",ev:"A",or:0.4,trait:"Защита от алкоголизма, но ацетальдегид ↑"},
+{rs:"rs671",gene:"ALDH2",cat:"NUTRI",risk:"A",ref:"G",desc:"ALDH2*2 — алкогольный флеш-синдром",ev:"A",or:0.1,trait:"Непереносимость алкоголя, рак пищевода ↑"},
+{rs:"rs174547",gene:"FADS1",cat:"NUTRI",risk:"C",ref:"T",desc:"FADS1 — десатуразы жирных кислот",ev:"A",or:1.3,trait:"CC: хуже синтез длинноцепочечных омега-3 из ALA"},
+{rs:"rs2282679",gene:"GC",cat:"NUTRI",risk:"C",ref:"A",desc:"GC/VDBP — транспортный белок витамина D",ev:"A",or:1.5,trait:"CC: сниженный уровень 25(OH)D"},
+{rs:"rs12785878",gene:"DHCR7",cat:"NUTRI",risk:"T",ref:"G",desc:"DHCR7 — синтез витамина D в коже",ev:"A",or:1.3,trait:"TT: замедленный синтез витамина D"},
+{rs:"rs602662",gene:"FUT2",cat:"NUTRI",risk:"A",ref:"G",desc:"FUT2 — абсорбция витамина B12",ev:"A",or:1.4,trait:"AA: сниженная абсорбция B12"},
+{rs:"rs33972313",gene:"SLC23A1",cat:"NUTRI",risk:"T",ref:"C",desc:"SLC23A1 — транспорт витамина C",ev:"B",or:1.3,trait:"Сниженный уровень аскорбиновой кислоты"},
+{rs:"rs7501331",gene:"BCMO1",cat:"NUTRI",risk:"T",ref:"C",desc:"BCMO1 — конверсия бета-каротина в витамин A",ev:"B",or:1.4,trait:"TT: плохая конверсия каротиноидов → ретинол"},
+{rs:"rs1800562",gene:"HFE",cat:"NUTRI",risk:"A",ref:"G",desc:"HFE C282Y — гемохроматоз (перегрузка железом)",ev:"A",or:10.0,trait:"Гомозигота: накопление железа, повреждение органов"},
+{rs:"rs1799945",gene:"HFE",cat:"NUTRI",risk:"G",ref:"C",desc:"HFE H63D — умеренное повышение железа",ev:"A",or:2.0,trait:"Компаунд-гетерозигота с C282Y: риск гемохроматоза"},
+{rs:"rs4680",gene:"COMT",cat:"NUTRI",risk:"A",ref:"G",desc:"COMT Val158Met — метаболизм катехоламинов и кофеина",ev:"A",or:1.0,trait:"AA(Met): высокий дофамин, чувствительность к стрессу/кофеину"},
+{rs:"rs1801394",gene:"MTRR",cat:"NUTRI",risk:"G",ref:"A",desc:"MTRR A66G — метаболизм B12/фолата",ev:"B",or:1.2,trait:"GG: повышенная потребность в B12 и метилфолате"},
+{rs:"rs4654748",gene:"NBPF3",cat:"NUTRI",risk:"T",ref:"C",desc:"Ассоциация с уровнем витамина B6",ev:"A",or:1.3,trait:"TT: сниженный уровень пиридоксина"},
+{rs:"rs7903146",gene:"TCF7L2",cat:"NUTRI",risk:"T",ref:"C",desc:"TCF7L2 — ведущий маркёр риска диабета 2 типа",ev:"A",or:1.4,trait:"TT: риск СД2 ×1.8, нарушен инкретиновый ответ",beta:0.31},
+{rs:"rs1801282",gene:"PPARG",cat:"NUTRI",risk:"G",ref:"C",desc:"PPARγ Pro12Ala — чувствительность к инсулину",ev:"A",or:0.85,trait:"G-аллель: некоторая защита от СД2"},
+{rs:"rs429358",gene:"APOE",cat:"NEURO",risk:"C",ref:"T",desc:"APOE ε4 (определяющий SNP #1)",ev:"A",or:3.7,trait:"ε4/ε4: риск болезни Альцгеймера ×12"},
+{rs:"rs7412",gene:"APOE",cat:"NEURO",risk:"C",ref:"T",desc:"APOE ε2/ε3/ε4 (определяющий SNP #2)",ev:"A",or:0.6,trait:"ε2: протективный аллель, ε4: повышенный риск"},
+{rs:"rs6265",gene:"BDNF",cat:"NEURO",risk:"T",ref:"C",desc:"BDNF Val66Met — нейропластичность",ev:"A",or:1.3,trait:"Met: ↓ секреция BDNF, ↓ объём гиппокампа"},
+{rs:"rs1800497",gene:"DRD2/ANKK1",cat:"NEURO",risk:"T",ref:"C",desc:"Taq1A — плотность D2-рецепторов",ev:"A",or:1.3,trait:"T-аллель: ↓ D2, склонность к аддикциям"},
+{rs:"rs6311",gene:"HTR2A",cat:"NEURO",risk:"A",ref:"G",desc:"HTR2A -1438A/G — серотониновый рецептор",ev:"B",or:1.2,trait:"AA: изменённый серотониновый сигналинг"},
+{rs:"rs25531",gene:"SLC6A4",cat:"NEURO",risk:"G",ref:"A",desc:"5-HTTLPR rs25531 — транспортёр серотонина",ev:"B",or:1.2,trait:"G: функциональный эквивалент короткого аллеля"},
+{rs:"rs1800955",gene:"DRD4",cat:"NEURO",risk:"T",ref:"C",desc:"DRD4 -521C/T — поиск новизны",ev:"B",or:1.2,trait:"T: повышенная экспрессия D4, импульсивность ↑"},
+{rs:"rs6313",gene:"HTR2A",cat:"NEURO",risk:"T",ref:"C",desc:"HTR2A T102C — ответ на атипичные антипсихотики",ev:"B",or:1.3,trait:"Модификатор ответа на клозапин, оланзапин"},
+{rs:"rs1800532",gene:"TPH1",cat:"NEURO",risk:"A",ref:"C",desc:"TPH1 A218C — синтез серотонина",ev:"B",or:1.2,trait:"A-аллель: изменённый синтез 5-HT"},
+{rs:"rs4570625",gene:"TPH2",cat:"NEURO",risk:"G",ref:"T",desc:"TPH2 G-703T — центральный синтез серотонина",ev:"B",or:1.3,trait:"T-аллель: связь с депрессией и тревогой"},
+{rs:"rs6314",gene:"HTR2A",cat:"NEURO",risk:"T",ref:"C",desc:"HTR2A His452Tyr — модификатор ответа на СИОЗС",ev:"B",or:1.2,trait:"T: изменённый ответ на антидепрессанты"},
+{rs:"rs165599",gene:"COMT",cat:"NEURO",risk:"A",ref:"G",desc:"COMT 3'UTR — регуляция экспрессии",ev:"B",or:1.2,trait:"Модификатор уровня COMT"},
+{rs:"rs1815739",gene:"ACTN3",cat:"SPORT",risk:"T",ref:"C",desc:"ACTN3 R577X — тип мышечных волокон",ev:"A",or:1.0,trait:"TT (XX): выносливость, CC (RR): спринт/сила"},
+{rs:"rs4341",gene:"ACE",cat:"SPORT",risk:"G",ref:"A",desc:"ACE I/D прокси — выносливость vs сила",ev:"A",or:1.0,trait:"II: выносливость, DD: сила/гипертрофия"},
+{rs:"rs12722",gene:"COL5A1",cat:"SPORT",risk:"T",ref:"C",desc:"COL5A1 — риск травм сухожилий",ev:"B",or:1.6,trait:"TT: повышенный риск тендинопатий"},
+{rs:"rs1800012",gene:"COL1A1",cat:"SPORT",risk:"T",ref:"G",desc:"COL1A1 Sp1 — плотность кости и связки",ev:"B",or:1.4,trait:"TT: сниженная прочность кости и связок"},
+{rs:"rs8192678",gene:"PPARGC1A",cat:"SPORT",risk:"A",ref:"G",desc:"PGC-1α Gly482Ser — митохондриальный биогенез",ev:"B",or:1.2,trait:"AA: сниженный аэробный потенциал"},
+{rs:"rs7460",gene:"HIF1A",cat:"SPORT",risk:"T",ref:"C",desc:"HIF1A Pro582Ser — адаптация к гипоксии",ev:"B",or:1.3,trait:"T: повышенная устойчивость к гипоксии"},
+{rs:"rs1042713",gene:"ADRB2",cat:"SPORT",risk:"G",ref:"A",desc:"ADRB2 Arg16Gly — бронходилатация и липолиз",ev:"B",or:1.2,trait:"GG: лучший ответ на β-агонисты"},
+{rs:"rs2104772",gene:"TNC",cat:"SPORT",risk:"A",ref:"T",desc:"Тенасцин C — структура сухожилий",ev:"B",or:1.4,trait:"AA: повышенный риск ахиллова тендинопатии"},
+{rs:"rs1800169",gene:"CNTF",cat:"SPORT",risk:"A",ref:"G",desc:"CNTF — цилиарный нейротрофический фактор",ev:"B",or:1.2,trait:"AA: влияние на мышечную силу"},
+{rs:"rs17602729",gene:"AMPD1",cat:"SPORT",risk:"T",ref:"C",desc:"AMPD1 — аденозинмонофосфат-дезаминаза",ev:"B",or:1.3,trait:"TT: мышечная утомляемость ↑, восстановление ↓"},
+{rs:"rs1801260",gene:"CLOCK",cat:"SLEEP",risk:"C",ref:"T",desc:"CLOCK 3111T/C — хронотип",ev:"A",or:1.3,trait:"CC: ночной хронотип (сова)"},
+{rs:"rs2304672",gene:"PER2",cat:"SLEEP",risk:"G",ref:"C",desc:"PER2 — фаза сна",ev:"B",or:1.4,trait:"GG: синдром опережения фазы сна (жаворонок)"},
+{rs:"rs73598374",gene:"ADA",cat:"SLEEP",risk:"T",ref:"C",desc:"ADA Asp8Asn — глубокий сон",ev:"B",or:1.5,trait:"T: больше глубокого SWS сна"},
+{rs:"rs57875989",gene:"DEC2/BHLHE41",cat:"SLEEP",risk:"T",ref:"C",desc:"DEC2 — потребность во сне",ev:"B",or:1.0,trait:"Мутация: генетический «короткий сон» (~6ч достаточно)"},
+{rs:"rs1144566",gene:"ADORA2A",cat:"SLEEP",risk:"T",ref:"C",desc:"ADORA2A — чувствительность к кофеину и сон",ev:"B",or:1.3,trait:"TT: кофеин сильнее нарушает сон"},
+{rs:"rs228697",gene:"PER3",cat:"SLEEP",risk:"C",ref:"G",desc:"PER3 — хронотип и сезонность",ev:"B",or:1.2,trait:"C: склонность к утреннему хронотипу"},
+{rs:"rs2187668",gene:"HLA-DQ2.5",cat:"IMMUNE",risk:"T",ref:"C",desc:"HLA-DQ2.5 — основной маркёр целиакии",ev:"A",or:7.0,trait:"Целиакия: необходимый (но не достаточный) фактор"},
+{rs:"rs7454108",gene:"HLA-DQ8",cat:"IMMUNE",risk:"C",ref:"T",desc:"HLA-DQ8 — второй маркёр целиакии",ev:"A",or:3.0,trait:"Целиакия: альтернативный HLA-гаплотип"},
+{rs:"rs2476601",gene:"PTPN22",cat:"IMMUNE",risk:"A",ref:"G",desc:"PTPN22 R620W — мастер-регулятор аутоиммунитета",ev:"A",or:1.8,trait:"Риск: СД1, РА, тиреоидит, волчанка"},
+{rs:"rs3087243",gene:"CTLA4",cat:"IMMUNE",risk:"G",ref:"A",desc:"CTLA4 CT60 — подавление иммунитета",ev:"A",or:1.3,trait:"GG: риск тиреоидита Грейвса, СД1"},
+{rs:"rs11209026",gene:"IL23R",cat:"IMMUNE",risk:"A",ref:"G",desc:"IL23R R381Q — защита от аутоиммунитета",ev:"A",or:0.4,trait:"A: защита от болезни Крона, язвенного колита, псориаза"},
+{rs:"rs2066844",gene:"NOD2/CARD15",cat:"IMMUNE",risk:"T",ref:"C",desc:"NOD2 R702W — болезнь Крона",ev:"A",or:2.5,trait:"Риск болезни Крона ×2.5"},
+{rs:"rs2066845",gene:"NOD2/CARD15",cat:"IMMUNE",risk:"C",ref:"G",desc:"NOD2 G908R — болезнь Крона",ev:"A",or:3.0,trait:"Риск болезни Крона ×3"},
+{rs:"rs5743293",gene:"NOD2/CARD15",cat:"IMMUNE",risk:"C",ref:"N",desc:"NOD2 1007fs — болезнь Крона (frameshift)",ev:"A",or:4.0,trait:"Сильнейший вариант: риск Крона ×4"},
+{rs:"rs3135388",gene:"HLA-DRB1",cat:"IMMUNE",risk:"A",ref:"G",desc:"HLA-DRB1*15:01 прокси — рассеянный склероз",ev:"A",or:3.1,trait:"Рассеянный склероз: риск ×3"},
+{rs:"rs6457617",gene:"HLA-DRB1",cat:"IMMUNE",risk:"T",ref:"C",desc:"HLA-DRB1 прокси — ревматоидный артрит",ev:"A",or:2.5,trait:"Ревматоидный артрит: основной HLA-маркёр"},
+{rs:"rs1799950",gene:"BRCA1",cat:"CANCER",risk:"A",ref:"G",desc:"BRCA1 Q356R — модификатор риска рака груди",ev:"B",or:1.3,trait:"Рак молочной железы: модификатор"},
+{rs:"rs1048943",gene:"CYP1A1",cat:"CANCER",risk:"G",ref:"A",desc:"CYP1A1 Ile462Val — активация канцерогенов",ev:"B",or:1.4,trait:"Рак лёгкого у курильщиков: риск ↑"},
+{rs:"rs1042522",gene:"TP53",cat:"CANCER",risk:"C",ref:"G",desc:"TP53 Arg72Pro — апоптоз",ev:"A",or:1.2,trait:"Pro-аллель: изменённый апоптоз"},
+{rs:"rs1801516",gene:"ATM",cat:"CANCER",risk:"A",ref:"G",desc:"ATM D1853N — репарация ДНК",ev:"B",or:1.2,trait:"Рак груди: умеренный модификатор"},
+{rs:"rs2981582",gene:"FGFR2",cat:"CANCER",risk:"T",ref:"C",desc:"FGFR2 — ведущий GWAS-маркёр рака груди",ev:"A",or:1.26,trait:"Рак молочной железы: ×1.26",beta:0.23},
+{rs:"rs13281615",gene:"8q24",cat:"CANCER",risk:"G",ref:"A",desc:"8q24 — маркёр рака груди и простаты",ev:"A",or:1.2,trait:"Онкориск: модификатор 8q24",beta:0.18},
+{rs:"rs6983267",gene:"8q24",cat:"CANCER",risk:"G",ref:"T",desc:"8q24 — колоректальный рак",ev:"A",or:1.25,trait:"Колоректальный рак: ×1.25",beta:0.22},
+{rs:"rs4430796",gene:"HNF1B",cat:"CANCER",risk:"A",ref:"G",desc:"HNF1B — рак простаты",ev:"A",or:1.2,trait:"Рак простаты: GWAS-маркёр",beta:0.18},
+{rs:"rs16901979",gene:"8q24",cat:"CANCER",risk:"A",ref:"C",desc:"8q24 Region 2 — рак простаты",ev:"A",or:1.6,trait:"Рак простаты: ×1.6",beta:0.47},
+{rs:"rs10505477",gene:"8q24",cat:"CANCER",risk:"A",ref:"G",desc:"8q24 — колоректальный рак (второй маркёр)",ev:"A",or:1.2,trait:"КРР: дополнительный маркёр",beta:0.18},
+{rs:"rs3803662",gene:"TOX3",cat:"CANCER",risk:"T",ref:"C",desc:"TOX3/TNRC9 — рак груди",ev:"A",or:1.2,trait:"Рак молочной железы: GWAS-маркёр",beta:0.18},
+{rs:"rs75961395",gene:"CFTR",cat:"CARRIER",risk:"A",ref:"G",desc:"CFTR ΔF508 прокси — муковисцидоз",ev:"A",or:1.0,trait:"Носительство: 1/25 европейцев"},
+{rs:"rs113993960",gene:"CFTR",cat:"CARRIER",risk:"DEL",ref:"CTT",desc:"CFTR ΔF508 — муковисцидоз (делеция)",ev:"A",or:1.0,trait:"Гомозигота: муковисцидоз"},
+{rs:"rs334",gene:"HBB",cat:"CARRIER",risk:"T",ref:"A",desc:"HBB E6V — серповидноклеточная анемия",ev:"A",or:1.0,trait:"Носительство: защита от малярии"},
+{rs:"rs80338939",gene:"GJB2",cat:"CARRIER",risk:"DEL",ref:"G",desc:"GJB2 35delG — наследственная глухота",ev:"A",or:1.0,trait:"Самая частая мутация нейросенсорной тугоухости"},
+{rs:"rs121907977",gene:"HEXA",cat:"CARRIER",risk:"T",ref:"C",desc:"HEXA — болезнь Тея-Сакса",ev:"A",or:1.0,trait:"1/30 ашкенази, 1/300 общая популяция"},
+{rs:"rs5030858",gene:"PAH",cat:"CARRIER",risk:"A",ref:"G",desc:"PAH R408W — фенилкетонурия",ev:"A",or:1.0,trait:"Самая частая мутация ФКУ в Европе"},
+{rs:"rs76151636",gene:"SMN1",cat:"CARRIER",risk:"DEL",ref:"C",desc:"SMN1 — спинальная мышечная атрофия (прокси)",ev:"A",or:1.0,trait:"Носительство: 1/40–1/60"},
+{rs:"rs1800460",gene:"TPMT",cat:"CARRIER",risk:"A",ref:"G",desc:"TPMT*3B — тиопуриновая токсичность",ev:"A",or:1.0,trait:"Летальная токсичность азатиоприна/6-МП"},
+{rs:"rs1142345",gene:"TPMT",cat:"CARRIER",risk:"C",ref:"T",desc:"TPMT*3C — тиопуриновая токсичность",ev:"A",or:1.0,trait:"Дозо-чувствительный маркёр"},
+{rs:"rs1800559",gene:"HFE",cat:"CARRIER",risk:"T",ref:"C",desc:"HFE S65C — гемохроматоз (минорный)",ev:"B",or:1.0,trait:"Компаунд-носительство с C282Y"}
+];
+
+// ═══ PRS MODELS ═══
+const PRS_MODELS={
+  CAD:{name:"Ишемическая болезнь сердца (ИБС)",snps:["rs10757278","rs1333049","rs10455872","rs3798220","rs1746048","rs2383206","rs599839","rs17465637"],pop_mean:0,pop_sd:1.2,category:"CARDIO"},
+  T2D:{name:"Сахарный диабет 2 типа",snps:["rs7903146","rs1801282"],pop_mean:0,pop_sd:0.8,category:"NUTRI"},
+  BREAST_CA:{name:"Рак молочной железы",snps:["rs2981582","rs13281615","rs3803662"],pop_mean:0,pop_sd:0.6,category:"CANCER"},
+  PROSTATE_CA:{name:"Рак простаты",snps:["rs4430796","rs16901979","rs13281615"],pop_mean:0,pop_sd:0.7,category:"CANCER"},
+  CRC:{name:"Колоректальный рак",snps:["rs6983267","rs10505477"],pop_mean:0,pop_sd:0.5,category:"CANCER"}
+};
+
+const CAT_LABELS={
+  PHARM:{name:"Фармакогеномика",icon:"💊",color:"#6366f1"},
+  CARDIO:{name:"Кардиоваскулярное здоровье",icon:"❤️",color:"#ef4444"},
+  NUTRI:{name:"Нутригеномика",icon:"🥗",color:"#22c55e"},
+  NEURO:{name:"Неврология и поведение",icon:"🧠",color:"#a855f7"},
+  SPORT:{name:"Спорт и физическая активность",icon:"🏃",color:"#f97316"},
+  SLEEP:{name:"Сон и хронобиология",icon:"🌙",color:"#3b82f6"},
+  IMMUNE:{name:"Иммунитет и аутоиммунность",icon:"🛡️",color:"#14b8a6"},
+  CANCER:{name:"Онкомаркёры (модификаторы)",icon:"🔬",color:"#ec4899"},
+  CARRIER:{name:"Носительство рецессивных",icon:"🧬",color:"#8b5cf6"}
+};
+
+const STATUS_LABELS={
+  homozygous_risk:{label:"Гомозигота (риск)",color:"#dc2626",bg:"#fef2f2"},
+  heterozygous:{label:"Гетерозигота",color:"#d97706",bg:"#fffbeb"},
+  normal:{label:"Норма",color:"#16a34a",bg:"#f0fdf4"}
+};
+
+// ═══ UTILITY FUNCTIONS ═══
+function cdf(x){const a1=.254829592,a2=-.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429;const s=x<0?-1:1;x=Math.abs(x)/Math.sqrt(2);const t=1/(1+.3275911*x);const y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);return .5*(1+s*y)}
+
+function detectFormat(text){const h=text.substring(0,2000);if(h.includes("MyHeritage")||h.match(/^RSID,CHROMOSOME/mi))return"myheritage";if(h.includes("23andMe")||h.match(/^#.*23andMe/m))return"23andme";if(h.includes("AncestryDNA")||h.match(/^rsid\tchromosome\tposition\tallele1/mi))return"ancestry";if(h.includes("##fileformat=VCF"))return"vcf";if(h.match(/^rsid\tchromosome\tposition\tgenotype/mi))return"23andme";if(h.match(/^RSID,/mi))return"myheritage";return"auto"}
+
+function parseFile(text){const fmt=detectFormat(text);const results={};const lines=text.split("\n");const Q=s=>s.trim().replace(/^["']+|["']+$/g,"");
+for(const line of lines){if(line.startsWith("#")||!line.trim())continue;
+if(fmt==="myheritage"||fmt==="auto"){const p=line.includes(",")?line.split(","):line.split("\t");if(p.length>=4){const rs=Q(p[0]).toLowerCase();const gt=Q(p[3]).toUpperCase();if(rs.startsWith("rs")&&gt.length>=2&&gt!=="--"&&gt!=="00"&&gt!=="NN")results[rs]=gt}}
+if(fmt==="23andme"||fmt==="auto"){const p=line.split("\t");if(p.length>=4){const rs=Q(p[0]).toLowerCase();const gt=Q(p[3]).toUpperCase();if(rs.startsWith("rs")&&gt.length>=2&&gt!=="--"&&gt!=="00")results[rs]=gt}}
+if(fmt==="ancestry"){const p=line.split("\t");if(p.length>=5){const rs=Q(p[0]).toLowerCase();const a1=Q(p[3]).toUpperCase();const a2=Q(p[4]).toUpperCase();if(rs.startsWith("rs")&&a1!=="0")results[rs]=a1+a2}}
+if(fmt==="vcf"){const p=line.split("\t");if(p.length>=10){const id=Q(p[2]).toLowerCase();const ref=Q(p[3]).toUpperCase();const alt=Q(p[4]).toUpperCase();const gt=Q(p[9]).split(":")[0];if(id.startsWith("rs")&&gt){const alleles=[ref,...alt.split(",")];const idx=gt.replace("|","/").split("/").map(Number);results[id]=idx.map(i=>alleles[i]||"?").join("")}}}}
+return{format:fmt,data:results,total:Object.keys(results).length}}
+
+function matchSNPs(rawData){const matched=[];for(const snp of SNP_DB){const gt=rawData[snp.rs.toLowerCase()];if(gt&&gt!=="--"&&gt!=="00"&&gt!=="NN"){const rc=(gt[0]===snp.risk?1:0)+(gt[1]===snp.risk?1:0);matched.push({...snp,genotype:gt,riskCount:rc,status:rc===2?"homozygous_risk":rc===1?"heterozygous":"normal"})}}return matched}
+
+function calculatePRS(matchedSNPs){const results={};for(const[k,m]of Object.entries(PRS_MODELS)){let score=0,used=0;for(const rs of m.snps){const snp=matchedSNPs.find(s=>s.rs===rs);const db=SNP_DB.find(s=>s.rs===rs);if(snp&&db?.beta){score+=snp.riskCount*db.beta;used++}}if(used>0){const z=(score-m.pop_mean)/m.pop_sd;results[k]={name:m.name,score:score.toFixed(2),z:z.toFixed(2),percentile:Math.round(cdf(z)*100),snpsUsed:used,snpsTotal:m.snps.length,category:m.category}}}return results}
+
+function resolveAPOE(snps){const e1=snps.find(s=>s.rs==="rs429358"),e2=snps.find(s=>s.rs==="rs7412");if(!e1||!e2)return null;const g1=e1.genotype,g2=e2.genotype;let a=[];for(let i=0;i<2;i++){const x=g1[i],y=g2[i];if(x==="T"&&y==="T")a.push("ε3");else if(x==="T"&&y==="C")a.push("ε2");else if(x==="C"&&y==="T")a.push("ε4");else a.push("?")}a.sort();return a.join("/")}
+
+function checkCarriers(s1,s2){const cSNPs=SNP_DB.filter(s=>s.cat==="CARRIER");const risks=[];for(const snp of cSNPs){const m1=s1.find(s=>s.rs===snp.rs),m2=s2.find(s=>s.rs===snp.rs);if(m1&&m2){const c1=m1.riskCount>=1,c2=m2.riskCount>=1;if(c1&&c2)risks.push({gene:snp.gene,desc:snp.desc,risk:"Оба — носители. Риск для ребёнка: 25%",severity:"HIGH"});else if(c1||c2)risks.push({gene:snp.gene,desc:snp.desc,risk:"Один — носитель. Больные дети: 0%",severity:"LOW"})}}return risks}
+
+// ═══ EXPORT PDF ═══
+function exportPDF(matched,prs,apoe,parseResult,aiReport,carrierResults){
+const cats={};matched.forEach(s=>{if(!cats[s.cat])cats[s.cat]=[];cats[s.cat].push(s)});
+let h=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Генетический отчёт</title><style>@page{margin:2cm;size:A4}body{font-family:'Segoe UI',system-ui,sans-serif;font-size:11px;line-height:1.6;color:#1a1a2e;max-width:800px;margin:0 auto;padding:20px}h1{color:#1a1a2e;border-bottom:3px solid #6366f1;padding-bottom:10px;font-size:22px}h2{color:#6366f1;margin-top:25px;font-size:16px;border-bottom:1px solid #e5e7eb;padding-bottom:5px}h3{color:#4b5563;font-size:13px}.meta{background:#f8fafc;padding:15px;border-radius:8px;margin:15px 0;border-left:4px solid #6366f1}.sr{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:10px}.rh{background:#fef2f2;color:#dc2626}.rm{background:#fffbeb;color:#d97706}.rl{background:#f0fdf4;color:#16a34a}.b{padding:2px 8px;border-radius:4px;font-weight:600;font-size:9px}.pb{height:20px;background:#e5e7eb;border-radius:10px;overflow:hidden;margin:5px 0}.pf{height:100%;border-radius:10px}.disc{background:#fef3c7;border:1px solid #f59e0b;padding:15px;border-radius:8px;margin-top:25px;font-size:10px}.print-btn{display:block;margin:20px auto;padding:12px 32px;background:#6366f1;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}@media print{.np{display:none!important}body{padding:0}}</style></head><body>`;
+h+=`<div class="np" style="text-align:center;padding:16px;background:#f0f4ff;border-bottom:2px solid #6366f1;margin-bottom:20px"><button class="print-btn" onclick="window.print()">🖨️ Распечатать / Сохранить как PDF</button><p style="font-size:11px;color:#64748b;margin:8px 0 0">Нажмите кнопку или Ctrl+P → «Сохранить как PDF»</p></div>`;
+h+=`<h1>🧬 Генетический отчёт</h1><div class="meta"><strong>Дата:</strong> ${new Date().toLocaleDateString("ru-RU")} | <strong>Формат:</strong> ${parseResult?.format?.toUpperCase()} | <strong>SNP в файле:</strong> ${parseResult?.total?.toLocaleString()} | <strong>Клинически значимых:</strong> ${matched.length}/${SNP_DB.length}${apoe?` | <strong>APOE:</strong> ${apoe}`:""}</div>`;
+if(prs&&Object.keys(prs).length){h+=`<h2>📊 Полигенные риски (PRS)</h2>`;for(const[k,v]of Object.entries(prs)){const c=v.percentile>80?"#dc2626":v.percentile>60?"#d97706":v.percentile>40?"#6366f1":"#16a34a";h+=`<h3>${v.name}</h3><div class="pb"><div class="pf" style="width:${v.percentile}%;background:${c}"></div></div><p><strong>${v.percentile}-й процентиль</strong> (z: ${v.z}) — ${v.snpsUsed}/${v.snpsTotal} SNP</p>`}}
+for(const[cat,info]of Object.entries(CAT_LABELS)){const s=cats[cat];if(!s||!s.length)continue;h+=`<h2>${info.icon} ${info.name}</h2>`;s.sort((a,b)=>b.riskCount-a.riskCount);for(const x of s){const cl=x.status==="homozygous_risk"?"rh":x.status==="heterozygous"?"rm":"rl";h+=`<div class="sr ${cl}"><span><strong>${x.rs}</strong> (${x.gene}) — ${x.genotype}</span><span class="b ${cl}">${STATUS_LABELS[x.status]?.label}</span></div><div style="padding:2px 10px;font-size:10px;color:#6b7280">${x.desc}<br><em>${x.trait}</em></div>`}}
+if(aiReport){h+=`<h2>🤖 AI-анализ</h2><div style="white-space:pre-wrap;font-size:11px;line-height:1.7">${aiReport.replace(/\n/g,"<br>").replace(/\*\*(.*?)\*\*/g,"<strong>$1</strong>")}</div>`}
+if(carrierResults?.length){h+=`<h2>👫 Партнёрский скрининг</h2>`;for(const r of carrierResults){h+=`<div class="sr ${r.severity==="HIGH"?"rh":"rl"}"><strong>${r.gene}</strong>: ${r.risk}</div><div style="padding:2px 10px;font-size:10px">${r.desc}</div>`}}
+h+=`<div class="disc"><strong>⚠️ ДИСКЛЕЙМЕР:</strong> Информационный отчёт, НЕ медицинский диагноз. PRS — европейская популяция. Обратитесь к врачу-генетику.</div>`;
+h+=`<p style="text-align:center;margin-top:20px;color:#9ca3af;font-size:9px">Genome Analyzer v1.0 | ${new Date().toISOString()}</p>`;
+h+=`</body></html>`;
+// Download as HTML file (works in any sandbox)
+const blob=new Blob([h],{type:"text/html;charset=utf-8"});
+const url=URL.createObjectURL(blob);
+const a=document.createElement("a");
+a.href=url;a.download=`genome_report_${new Date().toISOString().slice(0,10)}.html`;
+document.body.appendChild(a);a.click();document.body.removeChild(a);
+URL.revokeObjectURL(url)}
+
+// ═══ MAIN APP ═══
+function App(){
+const[step,setStep]=useState("upload");
+const[file1,setFile1]=useState(null);const[file2,setFile2]=useState(null);
+const[pr1,setPr1]=useState(null);const[pr2,setPr2]=useState(null);
+const[m1,setM1]=useState([]);const[m2,setM2]=useState([]);
+const[prs,setPrs]=useState(null);const[carriers,setCarriers]=useState(null);
+const[apoe,setApoe]=useState(null);
+const[aiReport,setAiReport]=useState("");const[aiLoading,setAiLoading]=useState(false);
+const[apiKey,setApiKey]=useState(localStorage.getItem("ga_api_key")||"");
+const[showKey,setShowKey]=useState(false);
+const[activeCat,setActiveCat]=useState("ALL");
+const[partner,setPartner]=useState(false);
+const[drag,setDrag]=useState(false);const[error,setError]=useState("");
+const fr=useRef(null);const fr2=useRef(null);
+
+const handleFile=useCallback((file,isP=false)=>{if(!file)return;setError("");
+const r=new FileReader();r.onload=e=>{try{const t=e.target.result;const res=parseFile(t);
+if(res.total<10){setError("Менее 10 SNP. Проверьте формат.");return}
+if(isP){setFile2(file);setPr2(res);const m=matchSNPs(res.data);setM2(m);if(m1.length)setCarriers(checkCarriers(m1,m))}
+else{setFile1(file);setPr1(res);const m=matchSNPs(res.data);setM1(m);setPrs(calculatePRS(m));setApoe(resolveAPOE(m));setStep("results")}}
+catch(err){setError("Ошибка: "+err.message)}};r.readAsText(file)},[m1]);
+
+const genAI=useCallback(async()=>{
+if(!apiKey){setShowKey(true);setError("Введите API-ключ Anthropic для AI-отчёта");return}
+setAiLoading(true);setAiReport("");
+try{const summary=m1.map(s=>`${s.rs}|${s.gene}|${s.genotype}|${s.status}|${s.desc}`).join("\n");
+const prsT=prs?Object.entries(prs).map(([k,v])=>`${v.name}: ${v.percentile}% (z=${v.z})`).join("\n"):"N/A";
+const prompt=`Ты — клинический генетик. Проанализируй данные (${m1.length} SNP):\n\n${summary}\n\nPRS:\n${prsT}\n\n${apoe?"APOE: "+apoe:""}\n\nСоздай отчёт по категориям: Фармакогеномика, Кардио, Нутри, Нейро, Спорт, Сон, Иммунитет, Онко, Носительство. Приоритет: гомозиготы. Язык: русский. Добавь дисклеймер.`;
+const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:4000,messages:[{role:"user",content:prompt}]})});
+const data=await resp.json();
+if(data.error){setError("API: "+data.error.message);setAiLoading(false);return}
+setAiReport(data.content?.map(c=>c.text||"").join("\n")||"Ошибка");setStep("report");
+}catch(err){setError("API ошибка: "+err.message)}setAiLoading(false)},[m1,prs,apoe,apiKey]);
+
+const filtered=useMemo(()=>activeCat==="ALL"?m1:m1.filter(s=>s.cat===activeCat),[m1,activeCat]);
+const stats=useMemo(()=>{const c={};m1.forEach(s=>{if(!c[s.cat])c[s.cat]={t:0,r:0,h:0};c[s.cat].t++;if(s.status==="homozygous_risk")c[s.cat].r++;if(s.status==="heterozygous")c[s.cat].h++});return c},[m1]);
+
+const saveKey=k=>{setApiKey(k);try{localStorage.setItem("ga_api_key",k)}catch(e){}};
+
+const bs=(c)=>({padding:"8px 16px",background:`${c}22`,border:`1px solid ${c}55`,borderRadius:8,color:"#e2e8f0",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"});
+const cb=(a,c)=>({padding:"6px 14px",background:a?`${c}33`:"rgba(30,41,59,.5)",border:`1px solid ${a?c:"#334155"}`,borderRadius:20,color:a?"#e2e8f0":"#94a3b8",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:a?600:400,whiteSpace:"nowrap"});
+
+return(
+<div>
+{/* HEADER */}
+<div style={{background:"linear-gradient(90deg,rgba(99,102,241,.15),rgba(168,85,247,.1),transparent)",borderBottom:"1px solid rgba(99,102,241,.2)",padding:"16px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+<div style={{display:"flex",alignItems:"center",gap:12}}>
+<span style={{fontSize:28}}>🧬</span>
+<div><h1 style={{margin:0,fontSize:18,fontWeight:700,color:"#c4b5fd",letterSpacing:"-.5px"}}>GENOME ANALYZER</h1>
+<span style={{fontSize:10,color:"#64748b",letterSpacing:"2px"}}>MyHeritage · 23andMe · Ancestry · VCF · LOCAL</span></div>
+</div>
+{(step==="results"||step==="report")&&<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+<button onClick={()=>setPartner(!partner)} style={bs("#8b5cf6")}>👫 Партнёр</button>
+<button onClick={()=>setShowKey(!showKey)} style={bs("#334155")}>🔑 API</button>
+<button onClick={genAI} disabled={aiLoading} style={bs("#6366f1")}>{aiLoading?"⏳...":"🤖 AI-отчёт"}</button>
+<button onClick={()=>exportPDF(m1,prs,apoe,pr1,aiReport,carriers)} style={bs("#22c55e")}>📄 PDF</button>
+<button onClick={()=>{setStep("upload");setFile1(null);setM1([]);setPrs(null);setApoe(null);setAiReport("");setFile2(null);setM2([]);setCarriers(null);setActiveCat("ALL")}} style={bs("#ef4444")}>✕</button>
+</div>}
+</div>
+
+{/* API KEY INPUT */}
+{showKey&&<div style={{margin:"12px 24px",padding:16,background:"rgba(30,41,59,.8)",border:"1px solid #334155",borderRadius:10}} className="fade-in">
+<label style={{fontSize:12,color:"#94a3b8",display:"block",marginBottom:8}}>Anthropic API Key (для AI-отчёта, хранится только в localStorage вашего браузера):</label>
+<div style={{display:"flex",gap:8}}>
+<input type="password" value={apiKey} onChange={e=>saveKey(e.target.value)} placeholder="sk-ant-..." style={{flex:1,padding:"8px 12px",background:"#0f0f1a",border:"1px solid #334155",borderRadius:6,color:"#e2e8f0",fontFamily:"inherit",fontSize:12}} />
+<button onClick={()=>setShowKey(false)} style={bs("#22c55e")}>✓</button>
+</div>
+<p style={{fontSize:10,color:"#64748b",marginTop:6}}>Без ключа всё работает кроме AI-отчёта. Ключ никуда не отправляется кроме api.anthropic.com.</p>
+</div>}
+
+{error&&<div style={{margin:"12px 24px",padding:"12px 16px",background:"rgba(239,68,68,.15)",border:"1px solid rgba(239,68,68,.3)",borderRadius:8,color:"#fca5a5",fontSize:13}}>⚠️ {error}</div>}
+
+{/* UPLOAD */}
+{step==="upload"&&<div style={{maxWidth:700,margin:"60px auto",padding:"0 24px"}} className="fade-in">
+<div onDrop={e=>{e.preventDefault();setDrag(false);handleFile(e.dataTransfer?.files?.[0])}} onDragOver={e=>{e.preventDefault();setDrag(true)}} onDragLeave={()=>setDrag(false)} onClick={()=>fr.current?.click()}
+style={{border:`2px dashed ${drag?"#6366f1":"#334155"}`,borderRadius:16,padding:"60px 40px",textAlign:"center",cursor:"pointer",background:drag?"rgba(99,102,241,.08)":"rgba(30,41,59,.5)",transition:"all .3s"}}>
+<div style={{fontSize:56,marginBottom:16}}>🧬</div>
+<h2 style={{margin:"0 0 8px",color:"#c4b5fd",fontSize:20}}>Перетащите файл генотипирования</h2>
+<p style={{color:"#94a3b8",fontSize:13,margin:"0 0 20px"}}>MyHeritage (.csv) · 23andMe (.txt) · Ancestry (.txt) · WGS (.vcf)</p>
+<div style={{display:"inline-block",padding:"10px 28px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",borderRadius:8,fontWeight:600,fontSize:13,color:"#fff"}}>Выбрать файл</div>
+<input ref={fr} type="file" accept=".csv,.txt,.vcf,.tsv" style={{display:"none"}} onChange={e=>handleFile(e.target.files?.[0])} />
+</div>
+<div style={{marginTop:40,display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12}}>
+{[{i:"🔒",t:"100% локально",d:"Парсинг в браузере. Файл никуда не уходит."},{i:"📊",t:`${SNP_DB.length} SNP`,d:"Мета-анализы, GWAS Catalog, PharmGKB."},{i:"📈",t:"PRS",d:"Процентили для 5 заболеваний."},{i:"🔑",t:"AI-отчёт (опц.)",d:"Claude API — отправляется только выжимка, не геном."}].map((f,i)=>
+<div key={i} style={{background:"rgba(30,41,59,.6)",border:"1px solid #1e293b",borderRadius:10,padding:16}}>
+<span style={{fontSize:24}}>{f.i}</span><h4 style={{margin:"8px 0 4px",color:"#c4b5fd",fontSize:13}}>{f.t}</h4>
+<p style={{margin:0,color:"#94a3b8",fontSize:11,lineHeight:1.5}}>{f.d}</p></div>)}
+</div>
+</div>}
+
+{/* RESULTS */}
+{(step==="results"||step==="report")&&m1.length>0&&<div style={{padding:"20px 24px",maxWidth:1200,margin:"0 auto"}} className="fade-in">
+{/* Stats */}
+<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+{[["Формат",pr1?.format?.toUpperCase(),"#6366f1"],["SNP в файле",pr1?.total?.toLocaleString(),"#8b5cf6"],["Совпадений",`${m1.length}/${SNP_DB.length}`,"#a855f7"],["Гомозигот",m1.filter(s=>s.status==="homozygous_risk").length,"#ef4444"],["Гетерозигот",m1.filter(s=>s.status==="heterozygous").length,"#f59e0b"],...(apoe?[["APOE",apoe,apoe.includes("ε4")?"#ef4444":"#22c55e"]]:[])].map(([l,v,c],i)=>
+<div key={i} style={{background:"rgba(30,41,59,.6)",border:`1px solid ${c}33`,borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+<div style={{fontSize:10,color:"#64748b",textTransform:"uppercase",letterSpacing:"1px",marginBottom:4}}>{l}</div>
+<div style={{fontSize:20,fontWeight:800,color:c}}>{v}</div></div>)}
+</div>
+
+{/* PRS */}
+{prs&&Object.keys(prs).length>0&&<div style={{background:"rgba(30,41,59,.6)",border:"1px solid #1e293b",borderRadius:12,padding:20,marginBottom:20}}>
+<h3 style={{margin:"0 0 16px",color:"#c4b5fd",fontSize:15}}>📊 Полигенные риски (PRS) — процентили</h3>
+<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14}}>
+{Object.entries(prs).map(([k,v])=>{const c=v.percentile>80?"#ef4444":v.percentile>60?"#f97316":v.percentile>40?"#c4b5fd":"#22c55e";return(
+<div key={k} style={{background:"rgba(15,15,26,.5)",borderRadius:10,padding:14,border:`1px solid ${v.percentile>80?"rgba(239,68,68,.3)":"rgba(99,102,241,.2)"}`}}>
+<div style={{fontSize:12,color:"#94a3b8",marginBottom:6}}>{v.name}</div>
+<div style={{fontSize:28,fontWeight:800,color:c}}>{v.percentile}<span style={{fontSize:14,color:"#64748b"}}>%</span></div>
+<div style={{height:6,background:"#1e293b",borderRadius:3,marginTop:8,overflow:"hidden"}}><div style={{width:`${v.percentile}%`,height:"100%",background:v.percentile>80?"#ef4444":v.percentile>60?"#f97316":"#6366f1",borderRadius:3}}/></div>
+<div style={{fontSize:10,color:"#64748b",marginTop:4}}>z={v.z} · {v.snpsUsed}/{v.snpsTotal} SNP</div>
+</div>)})}
+</div></div>}
+
+{/* Partner */}
+{partner&&<div style={{background:"rgba(139,92,246,.1)",border:"1px solid rgba(139,92,246,.3)",borderRadius:12,padding:20,marginBottom:20}}>
+<h3 style={{margin:"0 0 12px",color:"#c4b5fd"}}>👫 Партнёрский скрининг</h3>
+{!file2?<div onClick={()=>fr2.current?.click()} style={{border:"2px dashed #4c1d95",borderRadius:10,padding:24,textAlign:"center",cursor:"pointer",background:"rgba(76,29,149,.1)"}}>
+<p style={{margin:0,color:"#a78bfa"}}>Загрузите файл партнёра</p>
+<input ref={fr2} type="file" accept=".csv,.txt,.vcf,.tsv" style={{display:"none"}} onChange={e=>handleFile(e.target.files?.[0],true)} /></div>
+:<div><p style={{color:"#a78bfa",fontSize:12}}>✅ {file2.name} ({pr2?.total?.toLocaleString()} SNP)</p>
+{carriers&&<div>{carriers.filter(r=>r.severity==="HIGH").length===0?<p style={{color:"#22c55e",fontWeight:600}}>✅ Критических совпадений нет</p>
+:carriers.filter(r=>r.severity==="HIGH").map((r,i)=><div key={i} style={{background:"rgba(239,68,68,.15)",border:"1px solid rgba(239,68,68,.3)",borderRadius:8,padding:12,marginTop:8}}>
+<strong style={{color:"#fca5a5"}}>⚠️ {r.gene}</strong>: {r.risk}<div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>{r.desc}</div></div>)}
+{carriers.filter(r=>r.severity==="LOW").length>0&&<details style={{marginTop:10}}><summary style={{cursor:"pointer",color:"#94a3b8",fontSize:12}}>Все ({carriers.length})</summary>
+{carriers.map((r,i)=><div key={i} style={{padding:"6px 0",borderBottom:"1px solid #1e293b",fontSize:11}}><strong>{r.gene}</strong>: {r.risk}</div>)}</details>}
+</div>}</div>}
+</div>}
+
+{/* AI Report */}
+{step==="report"&&aiReport&&<div style={{background:"rgba(30,41,59,.8)",border:"1px solid rgba(99,102,241,.3)",borderRadius:12,padding:24,marginBottom:20,maxHeight:600,overflowY:"auto"}}>
+<h3 style={{margin:"0 0 16px",color:"#c4b5fd"}}>🤖 AI-анализ</h3>
+<div style={{fontSize:13,lineHeight:1.8,color:"#cbd5e1"}}>
+{aiReport.split("\n").map((l,i)=>{
+if(l.startsWith("## "))return<h3 key={i} style={{color:"#a78bfa",fontSize:15,margin:"20px 0 8px"}}>{l.replace("## ","")}</h3>;
+if(l.startsWith("### "))return<h4 key={i} style={{color:"#c4b5fd",fontSize:13,margin:"14px 0 6px"}}>{l.replace("### ","")}</h4>;
+if(l.startsWith("- ")||l.startsWith("* "))return<div key={i} style={{paddingLeft:16,margin:"2px 0"}}>• {l.replace(/^[-*]\s/,"").replace(/\*\*(.*?)\*\*/g,(m,p)=>`«${p}»`)}</div>;
+return<p key={i} style={{margin:"4px 0"}}>{l}</p>})}
+</div></div>}
+
+{/* Category Filter */}
+<div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:16,flexWrap:"wrap"}}>
+<button onClick={()=>setActiveCat("ALL")} style={cb(activeCat==="ALL","#6366f1")}>Все ({m1.length})</button>
+{Object.entries(CAT_LABELS).map(([cat,info])=>{const c=stats[cat]?.t||0;if(!c)return null;return<button key={cat} onClick={()=>setActiveCat(cat)} style={cb(activeCat===cat,info.color)}>{info.icon} {info.name} ({c})</button>})}
+</div>
+
+{/* SNP Table */}
+<div style={{background:"rgba(30,41,59,.5)",border:"1px solid #1e293b",borderRadius:12,overflow:"hidden"}}>
+<div style={{display:"grid",gridTemplateColumns:"100px 90px 70px 100px 1fr",gap:0,padding:"10px 14px",background:"rgba(99,102,241,.1)",fontSize:11,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"1px"}}>
+<span>RS ID</span><span>Ген</span><span>Генотип</span><span>Статус</span><span>Описание</span></div>
+<div style={{maxHeight:500,overflowY:"auto"}}>
+{filtered.sort((a,b)=>b.riskCount-a.riskCount).map((snp,i)=>{const st=STATUS_LABELS[snp.status];return(
+<div key={i} style={{display:"grid",gridTemplateColumns:"100px 90px 70px 100px 1fr",gap:0,padding:"8px 14px",borderBottom:"1px solid rgba(30,41,59,.8)",background:i%2?"rgba(15,15,26,.3)":"transparent",fontSize:12,alignItems:"start"}}>
+<span style={{color:"#818cf8",fontWeight:600}}>{snp.rs}</span>
+<span style={{color:"#a5b4fc"}}>{snp.gene}</span>
+<span style={{fontWeight:700,color:"#e2e8f0",fontFamily:"monospace"}}>{snp.genotype}</span>
+<span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,color:st.color,background:st.bg+"22",border:`1px solid ${st.color}33`}}>{st.label}</span>
+<div><div style={{color:"#cbd5e1",fontSize:11}}>{snp.desc}</div><div style={{color:"#64748b",fontSize:10,marginTop:2}}>{snp.trait}</div></div>
+</div>)})}
+</div></div>
+
+{/* Disclaimer */}
+<div style={{marginTop:24,padding:16,background:"rgba(250,204,21,.08)",border:"1px solid rgba(250,204,21,.2)",borderRadius:10,fontSize:11,color:"#fbbf24",lineHeight:1.6}}>
+⚠️ <strong>Дисклеймер:</strong> Информационный инструмент, НЕ диагноз. PRS для европейской популяции. Обратитесь к генетику.
+</div>
+</div>}
+</div>)}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
